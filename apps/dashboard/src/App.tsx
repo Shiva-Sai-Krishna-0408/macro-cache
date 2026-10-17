@@ -3,7 +3,9 @@ import { useApi } from "./api";
 import { Button } from "./components/ui";
 import LogSheet, { type LogPreset } from "./pages/LogSheet";
 import Onboarding from "./pages/Onboarding";
+import Progress from "./pages/Progress";
 import Settings from "./pages/Settings";
+import Simulator from "./pages/Simulator";
 import Today from "./pages/Today";
 
 export type Tab = "today" | "progress" | "simulate" | "settings";
@@ -59,7 +61,8 @@ export default function App() {
 
       <main className="space-y-4 p-4">
         {tab === "today" && <Today profile={profile.data} onLog={(p) => setLogPreset(p)} />}
-        {(tab === "progress" || tab === "simulate") && <p className="text-muted">Coming soon.</p>}
+        {tab === "progress" && <Progress units={units} />}
+        {tab === "simulate" && <Simulator profile={profile.data} />}
         {tab === "settings" && <Settings profile={profile.data} login={me.data.login} onEditProfile={() => setEditingProfile(true)} />}
       </main>
 
