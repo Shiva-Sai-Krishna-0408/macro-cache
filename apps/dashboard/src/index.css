@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+/* Dark-first tokens. Series colors validated (dataviz validator, dark, all-pairs) against --color-panel. */
+@theme {
+  --color-bg: #0b0f14;
+  --color-panel: #131a22;
+  --color-panel-2: #1a2330;
+  --color-line: #243041;
+  --color-ink: #e6edf3;
+  --color-ink-2: #b4c0cf;
+  --color-muted: #8b9bb0;
+  --color-accent: #3fb950;
+  --color-accent-ink: #04130a;
+  --color-protein: #3987e5;
+  --color-carbs: #d95926;
+  --color-fat: #199e70;
+  --color-warn: #d29922;
+  --color-danger: #f85149;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}
+
+body {
+  min-width: 320px;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+input,
+select,
+textarea {
+  font-size: 16px; /* prevents iOS zoom on focus */
+}
+
+input[type="range"] {
+  accent-color: var(--color-accent);
+}
+
+.safe-bottom {
+  padding-bottom: max(env(safe-area-inset-bottom), 8px);
+}

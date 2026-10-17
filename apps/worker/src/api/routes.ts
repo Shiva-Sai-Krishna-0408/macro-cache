@@ -23,7 +23,7 @@ function errorResponse(e: unknown) {
   if (e instanceof NotFoundError) return json({ error: "not_found", message: e.message }, 404);
   if (e instanceof ForbiddenError) return json({ error: "forbidden", message: e.message }, 403);
   console.error(e);
-  return json({ error: "internal_error", message: (e as Error)?.message ?? "Unexpected error" }, 500);
+  return json({ error: "internal_error", message: "Unexpected server error." }, 500);
 }
 
 const profileSchema = z

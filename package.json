@@ -12,7 +12,7 @@
   "scripts": {
     "build": "npm run build -w apps/dashboard",
     "test": "vitest run",
-    "typecheck": "tsc -p packages/core && tsc -p apps/worker",
+    "typecheck": "tsc -p packages/core && tsc -p apps/worker && tsc -p apps/dashboard",
     "dev": "wrangler dev",
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
