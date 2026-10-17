@@ -1,3 +1,5 @@
+# The only GitHub username allowed to sign in (your own)
+ALLOWED_GITHUB_USER=
 # GitHub OAuth app (https://github.com/settings/developers → New OAuth App)
 # Callback URL: https://<your-worker>.<your-subdomain>.workers.dev/callback
 GITHUB_CLIENT_ID=

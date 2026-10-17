@@ -25,5 +25,31 @@
     "typescript": "^7.0.2",
     "vitest": "^5.0.5",
     "wrangler": "^4.151.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Shiva-Sai-Krishna-0408/macro-cache"
+  },
+  "cloudflare": {
+    "bindings": {
+      "ALLOWED_GITHUB_USER": {
+        "description": "Your GitHub **username**: the only account allowed to sign in."
+      },
+      "GITHUB_CLIENT_ID": {
+        "description": "Client ID of a [GitHub OAuth app](https://github.com/settings/applications/new) with callback `https://<worker-url>/callback`."
+      },
+      "GITHUB_CLIENT_SECRET": {
+        "description": "Client secret of that GitHub OAuth app."
+      },
+      "COOKIE_ENCRYPTION_KEY": {
+        "description": "Any long random string, e.g. `openssl rand -hex 32`."
+      },
+      "DB": {
+        "description": "D1 database for your foods, logs and weights (created automatically)."
+      },
+      "OAUTH_KV": {
+        "description": "KV namespace for OAuth grants (created automatically)."
+      }
+    }
   }
 }

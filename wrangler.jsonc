@@ -22,8 +22,5 @@
       "binding": "OAUTH_KV"
     }
   ],
-  "vars": {
-    "ALLOWED_GITHUB_USER": ""
-  },
   "observability": { "enabled": true }
 }

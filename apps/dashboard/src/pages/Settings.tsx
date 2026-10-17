@@ -157,7 +157,7 @@ export default function Settings({ profile, login, onEditProfile }: { profile: a
 
       <p className="px-1 pb-4 text-center text-xs text-muted">
         macro-cache gives estimates, not medical advice. ·{" "}
-        <a className="underline" href="https://github.com/" target="_blank" rel="noreferrer">
+        <a className="underline" href="https://github.com/Shiva-Sai-Krishna-0408/macro-cache" target="_blank" rel="noreferrer">
           Source
         </a>
       </p>
