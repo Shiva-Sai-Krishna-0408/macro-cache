@@ -1,0 +1,12 @@
+{
+  "name": "@macro-cache/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@cloudflare/workers-oauth-provider": "^1.2.3",
+    "@modelcontextprotocol/server": "^2.3.1",
+    "drizzle-orm": "^0.45.4",
+    "zod": "^4.6.7"
+  }
+}

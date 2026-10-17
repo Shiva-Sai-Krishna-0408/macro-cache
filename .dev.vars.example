@@ -1,0 +1,6 @@
+# GitHub OAuth app (https://github.com/settings/developers → New OAuth App)
+# Callback URL: https://<your-worker>.<your-subdomain>.workers.dev/callback
+GITHUB_CLIENT_ID=
+GITHUB_CLIENT_SECRET=
+# Any long random string, e.g. `openssl rand -hex 32`
+COOKIE_ENCRYPTION_KEY=

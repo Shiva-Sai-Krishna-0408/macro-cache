@@ -1,0 +1,29 @@
+{
+  "name": "macro-cache",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Free, open-source, Claude-native macro tracker. Self-hosted on Cloudflare's free tier.",
+  "license": "MIT",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w apps/dashboard",
+    "test": "vitest run",
+    "typecheck": "tsc -p packages/core && tsc -p apps/worker",
+    "dev": "wrangler dev",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate:local": "wrangler d1 migrations apply DB --local",
+    "deploy": "npm run build && wrangler deploy && wrangler d1 migrations apply DB --remote"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261016.1",
+    "@types/node": "^26.6.5",
+    "drizzle-kit": "^0.31.11",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5",
+    "wrangler": "^4.151.1"
+  }
+}
