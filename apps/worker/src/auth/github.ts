@@ -14,10 +14,17 @@ import { cookie, createSession, getCookie, randomToken, readSession, s256, sameU
 const DASH_STATE_COOKIE = "__Host-mc_login";
 const escape = (v: string) => v.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
-const html = (body: string, status = 200, headers?: Headers) => {
+/**
+ * `formAction` matters: Chrome enforces CSP form-action on EVERY hop of the redirect chain a
+ * form submission starts. The consent form's chain is POST /authorize → github.com → /callback →
+ * the MCP client's redirect URI (e.g. claude.ai) when GitHub auto-approves, or straight to the
+ * client when already signed in. Every one of those origins must be listed, or the browser blocks
+ * the final hop after /callback has already consumed the one-time state.
+ */
+const html = (body: string, status = 200, headers?: Headers, formAction: string[] = ["'self'"]) => {
   const h = headers ?? new Headers();
   h.set("Content-Type", "text/html; charset=utf-8");
-  h.set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; form-action 'self' https://github.com");
+  h.set("Content-Security-Policy", `default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; form-action ${formAction.join(" ")}`);
   h.set("X-Frame-Options", "DENY");
   return new Response(page(body), { status, headers: h });
 };
@@ -69,11 +76,26 @@ ${d.redirectIsLoopback ? `<p class="warn">This sends access to an app on your co
 <button class="primary" name="decision" value="approve">Allow</button><button class="ghost" name="decision" value="deny">Deny</button></form>`;
 }
 
+/** form-action sources for the consent page: us, GitHub, and the client's (library-validated) redirect origin. */
+export function consentFormAction(redirectUri: string): string[] {
+  const sources = ["'self'", "https://github.com"];
+  try {
+    const origin = new URL(redirectUri).origin;
+    if (origin !== "null" && /^https?:\/\/[a-z0-9.\-[\]:]+$/i.test(origin)) sources.push(origin);
+  } catch {
+    /* unparseable redirect URIs are rejected by parseAuthRequest before we get here */
+  }
+  return sources;
+}
+
 function renderAuthError(e: unknown): Response {
   if (e instanceof AuthorizationError && e.redirectTo) return Response.redirect(e.redirectTo, 302);
   if (e instanceof AuthorizationError || e instanceof CimdFetchError) {
     const message = e instanceof AuthorizationError ? e.description : "This app could not be verified.";
-    return html(`<h1>Can't connect</h1><p>${escape(message ?? "Authorization failed.")}</p><p class="muted">Start the connection again from Claude.</p>`, 400);
+    return html(
+      `<h1>Can't connect</h1><p>${escape(message ?? "Authorization failed.")}</p><p class="muted">Each sign-in link works once, for 10 minutes, in the browser that started it. If you just approved, check whether Claude already shows macro-cache as connected; otherwise start the connection again from Claude.</p>`,
+      400,
+    );
   }
   throw e;
 }
@@ -88,7 +110,7 @@ export async function handleAuthorize(req: Request, env: Env): Promise<Response>
       const details = await oauth.describeConsent(request);
       const consent = await oauth.beginConsent(request);
       const session = await readSession(req, env.COOKIE_ENCRYPTION_KEY, env.ALLOWED_GITHUB_USER);
-      return html(consentPage(details, consent.handle, session?.login ?? null), 200, consent.headers);
+      return html(consentPage(details, consent.handle, session?.login ?? null), 200, consent.headers, consentFormAction(details.redirectUri));
     }
     if (req.method === "POST") {
       const form = await req.formData();
