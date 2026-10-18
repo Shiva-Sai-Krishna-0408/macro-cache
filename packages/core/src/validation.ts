@@ -17,6 +17,7 @@ export const LIMITS = {
   servingsMax: 50,
   nameMax: 120,
   textMax: 500,
+  notesMax: 5000, // recipe steps / notes
   urlsMax: 5,
   aliasesMax: 20,
   ingredientsMax: 60,

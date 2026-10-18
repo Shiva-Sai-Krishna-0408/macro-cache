@@ -376,3 +376,59 @@ describe("server instructions", () => {
     for (const rule of [/LOOK UP FIRST/, /search_foods/, /dry_run:true/, /top 3 options/, /tradeoff_card/, /never instructions/, /safety floor/, /Today: /, /undo_last/, /create_recipe/]) expect(text).toMatch(rule);
   });
 });
+
+describe("recipe notes and detail", () => {
+  it("saves multi-line steps via create_recipe and edits notes in place without a new version", async () => {
+    const t = setup();
+    const ch = await t.tool("upsert_food", CHICKEN);
+    const steps = "1. Season the chicken.\n2. Bake at 200°C for 25 min.\n3. Rest 5 min, slice.\n" + "x".repeat(1500);
+    const r = await t.tool("create_recipe", { name: "Baked chicken", ingredients: [{ food_id: ch.food.id, grams: 600 }], total_cooked_weight_g: 450, portion_g: 150, notes: steps });
+    expect(r.recipe.notes).toBe(steps);
+
+    const u = await t.tool("update_recipe", { id: r.recipe.id, notes: "1. Marinate overnight.\n2. Grill." });
+    expect(u.new_version).toBe(false);
+    expect(u.recipe.version).toBe(1);
+    expect(u.recipe.notes).toBe("1. Marinate overnight.\n2. Grill.");
+
+    // Changing the numbers bumps the version and carries the notes forward.
+    const v2 = await t.tool("update_recipe", { id: r.recipe.id, total_cooked_weight_g: 420 });
+    expect(v2.new_version).toBe(true);
+    expect(v2.recipe.version).toBe(2);
+    expect(v2.recipe.notes).toBe("1. Marinate overnight.\n2. Grill.");
+
+    // Undo reverts the in-place notes edit too.
+    await t.tool("update_recipe", { id: v2.recipe.id, notes: "oops" });
+    await t.tool("undo_last");
+    expect((await t.tool("get_recipe", { id: v2.recipe.id })).recipe.notes).toBe("1. Marinate overnight.\n2. Grill.");
+  });
+
+  it("rejects notes over 5000 characters", async () => {
+    const t = setup();
+    const ch = await t.tool("upsert_food", CHICKEN);
+    const r = await t.tool("create_recipe", { name: "Long", ingredients: [{ food_id: ch.food.id, grams: 100 }], notes: "y".repeat(5001) });
+    expect(r.ok).toBe(false);
+  });
+
+  it("get_recipe returns ingredients with raw weights, per-100 g/per-portion macros, versions and batch history", async () => {
+    const t = setup();
+    const ch = await t.tool("upsert_food", CHICKEN);
+    const ri = await t.tool("upsert_food", RICE);
+    const r = await t.tool("create_recipe", { name: "Chicken & rice", ingredients: [{ food_id: ch.food.id, grams: 600 }, { food_id: ri.food.id, grams: 400 }], total_cooked_weight_g: 1200, portion_g: 300 });
+    await t.tool("start_container", { recipe_id: r.recipe.id, portions: 4 });
+    const v2 = await t.tool("update_recipe", { id: r.recipe.id, total_cooked_weight_g: 1000 });
+    const c2 = await t.tool("start_container", { recipe_id: v2.recipe.id, portions: 4 });
+    await t.tool("use_container_portion", { container_id: c2.container.id });
+
+    const d = await t.tool("get_recipe", { id: r.recipe.id }); // old id resolves to the current version
+    expect(d.recipe.version).toBe(2);
+    expect(d.ingredients.map((i: any) => [i.name, i.raw_g])).toEqual([[CHICKEN.name, 600], [RICE.name, 400]]);
+    expect(d.ingredients[0].nutrients.kcal).toBe(990);
+    expect(d.recipe.per_100g.kcal).toBe(Math.round((165 * 6 + 130 * 4) / 10));
+    expect(d.recipe.per_portion.kcal).toBe(Math.round(((165 * 6 + 130 * 4) * 300) / 1000));
+    expect(d.versions.map((v: any) => v.total_cooked_weight_g)).toEqual([1200, 1000]);
+    expect(d.batches).toHaveLength(2);
+    expect(d.batches.map((b: any) => b.cooked_weight_g).sort()).toEqual([1000, 1200]);
+    const active = d.batches.find((b: any) => b.version === 2);
+    expect(active).toMatchObject({ portions_total: 4, portions_left: 3, active: true });
+  });
+});

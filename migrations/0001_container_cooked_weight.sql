@@ -1,0 +1,1 @@
+ALTER TABLE `container` ADD `cooked_weight_g` real;

@@ -117,6 +117,7 @@ export const recipe = sqliteTable(
     totalCookedWeightG: real("total_cooked_weight_g").notNull(),
     portionG: real("portion_g"),
     ...per100,
+    /** Free-text cooking steps / notes. Shared across versions (edited in place). */
     notes: text("notes"),
     deletedAt: text("deleted_at"),
     ...timestamps,
@@ -131,6 +132,8 @@ export const container = sqliteTable("container", {
   portionsTotal: real("portions_total").notNull(),
   portionsLeft: real("portions_left").notNull(),
   portionG: real("portion_g").notNull(),
+  /** Cooked weight of this batch (snapshot at start; history survives recipe edits). */
+  cookedWeightG: real("cooked_weight_g"),
   startedOn: text("started_on").notNull(),
   finishedAt: text("finished_at"),
   deletedAt: text("deleted_at"),

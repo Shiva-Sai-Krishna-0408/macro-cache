@@ -7,7 +7,7 @@ export const SERVER_INSTRUCTIONS = `macro-cache is the user's nutrition memory (
 
 LOOK UP FIRST: Before asking for a label, check search_foods, search_recipes, list_containers, search_restaurant_orders. Reuse the closest match (confirm in one line). Only if nothing is cached, ask for a label photo, convert to per 100 g, and upsert_food (source "label-photo"). Barcode → lookup_barcode first.
 
-MEAL PREP: Get raw ingredient weights + total cooked weight → create_recipe (create missing foods first) → start_container. Eating from it → use_container_portion.
+MEAL PREP: Get raw ingredient weights + total cooked weight → create_recipe (create missing foods first) → start_container. Eating from it → use_container_portion. When the user describes how they cook it, save the steps in the recipe's notes (create_recipe/update_recipe); get_recipe reads them back.
 
 EATING OUT: 1) search_restaurant_orders; else web-search official nutrition; visual estimate only as a labeled fallback. 2) get_day_summary, then give the top 3 options that fit remaining macros, ranked by protein per kcal, each with a portion tweak. 3) After eating, save_restaurant_order (with source_urls if official), then log it.
 

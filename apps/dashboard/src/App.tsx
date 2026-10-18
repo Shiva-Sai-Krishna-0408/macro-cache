@@ -4,14 +4,16 @@ import { Button } from "./components/ui";
 import LogSheet, { type LogPreset } from "./pages/LogSheet";
 import Onboarding from "./pages/Onboarding";
 import Progress from "./pages/Progress";
+import Recipes from "./pages/Recipes";
 import Settings from "./pages/Settings";
 import Simulator from "./pages/Simulator";
 import Today from "./pages/Today";
 
-export type Tab = "today" | "progress" | "simulate" | "settings";
+export type Tab = "today" | "recipes" | "progress" | "simulate" | "settings";
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: "today", label: "Today", icon: "M4 12h16M12 4v16" },
+  { id: "recipes", label: "Recipes", icon: "M6 3v8a3 3 0 006 0V3M9 3v18M17 3c-2 0-3 3-3 6s1 4 3 4v8" },
   { id: "progress", label: "Progress", icon: "M4 19l5-6 4 3 7-9" },
   { id: "simulate", label: "Simulate", icon: "M4 17c4 0 6-10 16-10M4 7h4m-4 10h8" },
   { id: "settings", label: "Settings", icon: "M12 15a3 3 0 100-6 3 3 0 000 6zm7-3l2-1-2-4-2 1-2-1V5h-4v2l-2 1-2-1-2 4 2 1v2l-2 1 2 4 2-1 2 1v2h4v-2l2-1 2 1 2-4-2-1z" },
@@ -61,6 +63,7 @@ export default function App() {
 
       <main className="space-y-4 p-4">
         {tab === "today" && <Today profile={profile.data} onLog={(p) => setLogPreset(p)} />}
+        {tab === "recipes" && <Recipes />}
         {tab === "progress" && <Progress units={units} />}
         {tab === "simulate" && <Simulator profile={profile.data} />}
         {tab === "settings" && <Settings profile={profile.data} login={me.data.login} onEditProfile={() => setEditingProfile(true)} />}

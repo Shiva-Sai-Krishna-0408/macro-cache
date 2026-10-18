@@ -9,7 +9,7 @@ import { deleteFood, lookupBarcode, recentFoods, searchFoods, setFavorite, upser
 import { copyMeal, deleteEntry, deleteTemplate, getDaySummary, listTemplates, logFood, logTemplate, recentEntries, saveTemplate, useContainerPortion } from "../services/logging";
 import { getProfile, recalculateTargets, updateProfile } from "../services/profile";
 import { deleteWeight, getProgress, listWeights, logWeight, projectProgress, suggestMeals } from "../services/progress";
-import { activeContainers, createRecipe, searchRecipes, searchRestaurantOrders, startContainer } from "../services/recipes";
+import { activeContainers, createRecipe, getRecipeDetail, searchRecipes, searchRestaurantOrders, startContainer, updateRecipe } from "../services/recipes";
 import { food } from "../db/schema";
 import { and, eq, isNull } from "drizzle-orm";
 
@@ -91,8 +91,10 @@ route("GET", "/api/barcode/:code", (ctx, _r, p) => lookupBarcode(ctx, p.code));
 
 route("GET", "/api/recipes", (ctx, _r, _p, url) => searchRecipes(ctx, qp(url, "q"), 50));
 route("POST", "/api/recipes", async (ctx, req) =>
-  createRecipe(ctx, await body(req, z.object({ name: z.string(), ingredients: z.array(z.object({ foodId: z.number().int(), grams: z.number() })), totalCookedWeightG: z.number().nullable().optional(), portionG: z.number().nullable().optional() }))),
+  createRecipe(ctx, await body(req, z.object({ name: z.string(), ingredients: z.array(z.object({ foodId: z.number().int(), grams: z.number() })), totalCookedWeightG: z.number().nullable().optional(), portionG: z.number().nullable().optional(), notes: z.string().max(5000).nullable().optional() }))),
 );
+route("GET", "/api/recipes/:id", (ctx, _r, p) => getRecipeDetail(ctx, Number(p.id)));
+route("PATCH", "/api/recipes/:id", async (ctx, req, p) => updateRecipe(ctx, Number(p.id), await body(req, z.object({ name: z.string().min(1).max(120).optional(), notes: z.string().max(5000).nullable().optional() }))));
 route("GET", "/api/containers", (ctx) => activeContainers(ctx));
 route("POST", "/api/containers", async (ctx, req) => startContainer(ctx, await body(req, z.object({ recipeId: z.number().int(), portions: z.number().optional(), portionG: z.number().optional(), label: z.string().optional() }))));
 route("POST", "/api/containers/:id/use", async (ctx, req, p) => {

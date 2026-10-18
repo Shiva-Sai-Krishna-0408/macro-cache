@@ -8,6 +8,13 @@
       "when": 1792274426661,
       "tag": "0000_init",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1792286186632,
+      "tag": "0001_container_cooked_weight",
+      "breakpoints": true
     }
   ]
 }

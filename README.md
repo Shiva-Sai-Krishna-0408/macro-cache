@@ -29,7 +29,8 @@ Ask Claude *"log the chipotle bowl I had yesterday"* or *"what should I eat for 
 - **Adaptive TDEE.** After 14+ days of logs and weigh-ins, your real maintenance is estimated from intake and trend weight, blended with the formula, and offered as an update.
 - **Progress hub.** Trend weight, % of goal, weekly rate, estimated fat lost (a range, or measured from body-fat entries), streaks, adherence, and a projected goal date from your actual pace.
 - **Projection simulator.** 1–24 months, week-by-week with TDEE recomputed as weight changes, a "days per week on target" setting, and side-by-side comparison of two calorie levels.
-- **Logging without AI.** Barcode scanning (Open Food Facts), fuzzy search, recents, favorites, templates, meal-prep one-tap, repeat yesterday, quick add.
+- **Logging without AI.** Barcode scanning (Open Food Facts), **Snap label** (photograph a nutrition panel; on-device OCR with Tesseract.js prefills the form for you to check), fuzzy search, recents, favorites, templates, meal-prep one-tap, repeat yesterday, quick add.
+- **Recipes page.** Every saved recipe with search: ingredients with raw weights, macros per 100 g cooked and per portion, meal-prep batch history, editable steps/notes (Claude can save these too), and one-tap "Log a portion".
 - **Write safety.** Every write supports `dry_run`, passes server-side plausibility checks, is audit-logged, and can be reverted with `undo_last`. See [SECURITY.md](SECURITY.md).
 - **Your data.** JSON export/import and CSV export.
 

@@ -7,7 +7,7 @@ import { getFood, lookupBarcode, searchFoods, upsertFood } from "../services/foo
 import { deleteEntry, getDaySummary, listTemplates, logFood, logTemplate, saveTemplate, useContainerPortion, type LogItem } from "../services/logging";
 import { getProfile, recalculateTargets, updateProfile } from "../services/profile";
 import { getProgress, logWeight, projectProgress, rankByProteinDensityTool, suggestMeals, tradeoff } from "../services/progress";
-import { activeContainers, createRecipe, saveRestaurantOrder, searchRecipes, searchRestaurantOrders, startContainer, updateRecipe } from "../services/recipes";
+import { activeContainers, createRecipe, getRecipeDetail, saveRestaurantOrder, searchRecipes, searchRestaurantOrders, startContainer, updateRecipe } from "../services/recipes";
 
 
 export const SERVER_NAME = "macro-cache";
@@ -257,8 +257,8 @@ export function buildMcpServer(ctx: Ctx): McpServer {
     {
       title: "Create recipe",
       description:
-        "Create a recipe from cached foods (raw ingredient weights) and the TOTAL COOKED weight; nutrients per 100 g = total ÷ cooked weight. Optionally set portion_g. Create missing ingredients with upsert_food first." + WRITE_NOTE,
-      inputSchema: z.object({ name: z.string().min(1).max(120), ingredients: recipeIngredients, total_cooked_weight_g: z.number().positive().max(50000).optional(), portion_g: z.number().positive().optional(), notes: z.string().max(500).optional(), dry_run: dryRun }),
+        "Create a recipe from cached foods (raw ingredient weights) and the TOTAL COOKED weight; nutrients per 100 g = total ÷ cooked weight. Optionally set portion_g and notes (cooking steps). Create missing ingredients with upsert_food first." + WRITE_NOTE,
+      inputSchema: z.object({ name: z.string().min(1).max(120), ingredients: recipeIngredients, total_cooked_weight_g: z.number().positive().max(50000).optional(), portion_g: z.number().positive().optional(), notes: z.string().max(5000).optional().describe("Cooking steps / notes as free text (line breaks OK). Save the steps when the user describes how they make it."), dry_run: dryRun }),
       annotations: WRITE,
     },
     run((a) => createRecipe(ctx, { name: a.name, ingredients: a.ingredients.map((i) => ({ foodId: i.food_id, grams: i.grams })), totalCookedWeightG: a.total_cooked_weight_g, portionG: a.portion_g, notes: a.notes }, { dryRun: a.dry_run })),
@@ -268,8 +268,10 @@ export function buildMcpServer(ctx: Ctx): McpServer {
     "update_recipe",
     {
       title: "Update recipe",
-      description: "Create a new version of a recipe (past logs keep their original numbers). Only pass fields that change." + WRITE_NOTE,
-      inputSchema: z.object({ id, name: z.string().min(1).max(120).optional(), ingredients: recipeIngredients.optional(), total_cooked_weight_g: z.number().positive().max(50000).optional(), portion_g: z.number().positive().nullable().optional(), notes: z.string().max(500).optional(), dry_run: dryRun }),
+      description:
+        "Update a recipe; only pass fields that change. Changing ingredients, cooked weight or portion size creates a new version (past logs keep their numbers); name/notes-only edits are applied in place. Use notes to save cooking steps." +
+        WRITE_NOTE,
+      inputSchema: z.object({ id, name: z.string().min(1).max(120).optional(), ingredients: recipeIngredients.optional(), total_cooked_weight_g: z.number().positive().max(50000).optional(), portion_g: z.number().positive().nullable().optional(), notes: z.string().max(5000).optional().describe("Cooking steps / notes as free text (line breaks OK). Save the steps when the user describes how they make it."), dry_run: dryRun }),
       annotations: WRITE,
     },
     run((a) =>
@@ -281,6 +283,12 @@ export function buildMcpServer(ctx: Ctx): McpServer {
     "search_recipes",
     { title: "Search recipes", description: "Search the user's saved recipes (current versions). Omit query to list recent ones.", inputSchema: z.object({ query: z.string().max(120).optional(), limit: z.number().int().min(1).max(50).optional() }), annotations: RO },
     run(async (a) => ({ recipes: await searchRecipes(ctx, a.query, a.limit) })),
+  );
+
+  server.registerTool(
+    "get_recipe",
+    { title: "Get recipe", description: "Get one recipe with ingredients (raw weights), macros per 100 g cooked and per portion, cooking steps/notes, version history and meal-prep batch history.", inputSchema: z.object({ id }), annotations: RO },
+    run((a) => getRecipeDetail(ctx, a.id)),
   );
 
   server.registerTool(
