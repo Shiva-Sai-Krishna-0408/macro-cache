@@ -1,4 +1,5 @@
-import { forGrams, roundNutrients, todayIn } from "@macro-cache/core";
+import { forGrams, parseNutritionLabel, roundNutrients, todayIn, validatePer100g } from "@macro-cache/core";
+import { type OcrProgress, recognizeLabel } from "../ocr";
 import { Suspense, lazy, useCallback, useEffect, useState } from "react";
 import { api, invalidate, useApi } from "../api";
 import { Button, ErrorText, Field, NumberInput, Segmented, Sheet, inputCls } from "../components/ui";
@@ -30,13 +31,14 @@ const fromFood = (f: any): Pickable => ({ kind: "food", id: f.id, name: f.name, 
 const fromRecipe = (r: any): Pickable => ({ kind: "recipe", id: r.id, name: r.name, sub: "Recipe", per100: r.per_100g, servingG: r.portion_g });
 const fromOrder = (o: any): Pickable => ({ kind: "restaurant_order", id: o.id, name: o.item, sub: o.restaurant, perUnit: o.nutrients });
 
-type Tab = "search" | "recent" | "favorites" | "templates" | "scan" | "manual" | "quick";
+type Tab = "search" | "recent" | "favorites" | "templates" | "scan" | "snap" | "manual" | "quick";
 const TABS: { value: Tab; label: string }[] = [
   { value: "search", label: "Search" },
+  { value: "scan", label: "Scan" },
+  { value: "snap", label: "Snap label" },
   { value: "recent", label: "Recent" },
   { value: "favorites", label: "★" },
   { value: "templates", label: "Templates" },
-  { value: "scan", label: "Scan" },
   { value: "manual", label: "New" },
   { value: "quick", label: "Quick" },
 ];
@@ -83,6 +85,7 @@ export default function LogSheet({ preset, onClose }: { preset: LogPreset; onClo
           {tab === "favorites" && <FavoritesTab onPick={setPicked} />}
           {tab === "templates" && <TemplatesTab meal={meal} date={date} onLogged={logged} />}
           {tab === "scan" && <ScanTab onPick={setPicked} onNotFound={() => setTab("manual")} />}
+          {tab === "snap" && <SnapLabelTab onCreated={(f) => setPicked(fromFood(f))} />}
           {tab === "manual" && <ManualFoodTab onCreated={(f) => setPicked(fromFood(f))} />}
           {tab === "quick" && <QuickAddTab meal={meal} date={date} onLogged={logged} />}
         </>
@@ -300,30 +303,61 @@ function ScanTab({ onPick, onNotFound }: { onPick: (p: Pickable) => void; onNotF
   );
 }
 
-function ManualFoodTab({ onCreated }: { onCreated: (food: any) => void }) {
+type NKey = "kcal" | "protein" | "carbs" | "fat" | "fiber" | "sugar" | "sodiumMg";
+const NUTRIENT_FIELDS: [NKey, string][] = [
+  ["kcal", "Calories (kcal)"],
+  ["protein", "Protein (g)"],
+  ["carbs", "Carbs (g)"],
+  ["fat", "Fat (g)"],
+  ["fiber", "Fiber (g)"],
+  ["sugar", "Sugar (g)"],
+  ["sodiumMg", "Sodium (mg)"],
+];
+
+export interface FoodPrefill {
+  basis: "serving" | "100g";
+  servingSizeG: number | null;
+  values: Partial<Record<NKey, number | null>>;
+  /** Fields OCR could not read — highlighted for the user to check. */
+  missing: string[];
+}
+
+function ManualFoodTab({ onCreated, prefill }: { onCreated: (food: any) => void; prefill?: FoodPrefill }) {
   const [name, setName] = useState("");
   const [brand, setBrand] = useState("");
-  const [basis, setBasis] = useState<"serving" | "100g">("serving");
-  const [serving, setServing] = useState<number | "">("");
-  const [n, setN] = useState<Record<string, number | "">>({ kcal: "", protein: "", carbs: "", fat: "", fiber: "", sugar: "", sodiumMg: "" });
+  const [basis, setBasis] = useState<"serving" | "100g">(prefill?.basis ?? "serving");
+  const [serving, setServing] = useState<number | "">(prefill?.servingSizeG ?? "");
+  const [n, setN] = useState<Record<NKey, number | "">>(() => {
+    const init = { kcal: "", protein: "", carbs: "", fat: "", fiber: "", sugar: "", sodiumMg: "" } as Record<NKey, number | "">;
+    for (const [k] of NUTRIENT_FIELDS) if (prefill?.values[k] != null) init[k] = prefill.values[k]!;
+    return init;
+  });
   const [barcode] = useState(() => sessionStorage.getItem("mc.pendingBarcode") ?? "");
   const [error, setError] = useState<unknown>(null);
   const [saving, setSaving] = useState(false);
+  const flagged = new Set(prefill?.missing ?? []);
+
+  const factor = basis === "serving" ? (Number(serving) > 0 ? 100 / Number(serving) : NaN) : 1;
+  const per100 = (k: NKey) => (n[k] === "" ? null : Number(n[k]) * factor);
+  const coreFilled = n.kcal !== "" && n.protein !== "" && n.carbs !== "" && n.fat !== "";
+  // Same plausibility rules the server enforces, shown before saving.
+  const check =
+    coreFilled && Number.isFinite(factor)
+      ? validatePer100g({ kcal: per100("kcal")!, protein: per100("protein")!, carbs: per100("carbs")!, fat: per100("fat")!, fiber: per100("fiber"), sugar: per100("sugar"), sodiumMg: per100("sodiumMg") })
+      : null;
 
   async function save() {
     setError(null);
     setSaving(true);
     try {
-      const factor = basis === "serving" ? 100 / Number(serving) : 1;
-      const v = (k: string) => (n[k] === "" ? null : Number(n[k]) * factor);
       const r = await api("/api/foods", {
         json: {
           name,
           brand: brand || null,
           barcode: barcode || null,
           servingSizeG: serving === "" ? null : Number(serving),
-          per100g: { kcal: v("kcal") ?? 0, protein: v("protein") ?? 0, carbs: v("carbs") ?? 0, fat: v("fat") ?? 0, fiber: v("fiber"), sugar: v("sugar"), sodiumMg: v("sodiumMg") },
-          source: barcode ? "label-photo" : "manual",
+          per100g: { kcal: per100("kcal") ?? 0, protein: per100("protein") ?? 0, carbs: per100("carbs") ?? 0, fat: per100("fat") ?? 0, fiber: per100("fiber"), sugar: per100("sugar"), sodiumMg: per100("sodiumMg") },
+          source: prefill || barcode ? "label-photo" : "manual",
         },
       });
       sessionStorage.removeItem("mc.pendingBarcode");
@@ -336,12 +370,13 @@ function ManualFoodTab({ onCreated }: { onCreated: (food: any) => void }) {
     }
   }
 
-  const valid = name.trim() && n.kcal !== "" && n.protein !== "" && n.carbs !== "" && n.fat !== "" && (basis === "100g" || Number(serving) > 0);
+  const flagCls = (k: string) => (flagged.has(k) ? "border-warn" : "");
+  const valid = name.trim() && coreFilled && (basis === "100g" || Number(serving) > 0) && check?.ok !== false;
   return (
     <div className="space-y-3">
       {barcode && <p className="text-xs text-muted">Barcode {barcode} will be saved with this food.</p>}
       <Field label="Name">
-        <input value={name} onChange={(e) => setName(e.target.value)} className={inputCls} />
+        <input value={name} onChange={(e) => setName(e.target.value)} className={inputCls} placeholder={prefill ? "e.g. Greek yogurt 0%" : undefined} />
       </Field>
       <Field label="Brand (optional)">
         <input value={brand} onChange={(e) => setBrand(e.target.value)} className={inputCls} />
@@ -349,30 +384,101 @@ function ManualFoodTab({ onCreated }: { onCreated: (food: any) => void }) {
       <Field label="Nutrition is listed">
         <Segmented value={basis} onChange={setBasis} options={[{ value: "serving", label: "Per serving" }, { value: "100g", label: "Per 100 g" }]} />
       </Field>
-      <Field label="Serving size (g)">
-        <NumberInput value={serving} onChange={setServing} />
+      <Field label="Serving size (g)" hint={flagged.has("servingSizeG") ? <span className="text-warn">Not read from the label. Please check.</span> : undefined}>
+        <NumberInput value={serving} onChange={setServing} className={flagCls("servingSizeG")} />
       </Field>
       <div className="grid grid-cols-2 gap-2">
-        {(
-          [
-            ["kcal", "Calories (kcal)"],
-            ["protein", "Protein (g)"],
-            ["carbs", "Carbs (g)"],
-            ["fat", "Fat (g)"],
-            ["fiber", "Fiber (g)"],
-            ["sugar", "Sugar (g)"],
-            ["sodiumMg", "Sodium (mg)"],
-          ] as const
-        ).map(([k, l]) => (
-          <Field key={k} label={l}>
-            <NumberInput value={n[k]} onChange={(v) => setN({ ...n, [k]: v })} />
+        {NUTRIENT_FIELDS.map(([k, l]) => (
+          <Field key={k} label={flagged.has(k) ? `${l} · check` : l}>
+            <NumberInput value={n[k]} onChange={(v) => setN({ ...n, [k]: v })} className={flagCls(k)} />
           </Field>
         ))}
       </div>
+      {check && !check.ok && (
+        <ul role="alert" className="space-y-1 rounded-xl border border-warn/50 bg-warn/10 p-3 text-sm text-ink-2">
+          {check.issues.map((i) => (
+            <li key={i}>⚠ {i}</li>
+          ))}
+        </ul>
+      )}
+      {check?.ok && (
+        <p className="text-xs text-muted">
+          ✓ Passes plausibility checks (per 100 g: {Math.round(per100("kcal")!)} kcal, {per100("protein")!.toFixed(1)} g protein).
+        </p>
+      )}
       <ErrorText error={error} />
       <Button variant="primary" className="w-full" disabled={!valid || saving} onClick={save}>
         Save food
       </Button>
+    </div>
+  );
+}
+
+function SnapLabelTab({ onCreated }: { onCreated: (food: any) => void }) {
+  const [photo, setPhoto] = useState<string | null>(null);
+  const [progress, setProgress] = useState<OcrProgress | null>(null);
+  const [prefill, setPrefill] = useState<FoodPrefill | null>(null);
+  const [rawText, setRawText] = useState("");
+  const [showRaw, setShowRaw] = useState(false);
+  const [notes, setNotes] = useState<string[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  async function onFile(file: File | undefined) {
+    if (!file) return;
+    setError(null);
+    setPrefill(null);
+    setPhoto(URL.createObjectURL(file));
+    try {
+      const text = await recognizeLabel(file, setProgress);
+      setRawText(text);
+      const p = parseNutritionLabel(text);
+      setNotes(p.notes);
+      if (!p.found.length) {
+        setError("Couldn't find a nutrition panel in that photo. Try again closer, flat and well lit, or enter it manually.");
+        return;
+      }
+      setPrefill({ basis: p.basis, servingSizeG: p.servingSizeG, values: { kcal: p.kcal, protein: p.protein, carbs: p.carbs, fat: p.fat, fiber: p.fiber, sugar: p.sugar, sodiumMg: p.sodiumMg }, missing: p.missing });
+    } catch (e) {
+      setError(`Text recognition failed: ${(e as Error).message}`);
+    } finally {
+      setProgress(null);
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <label className="flex cursor-pointer items-center justify-center gap-2 rounded-2xl border border-dashed border-line bg-bg p-4 text-sm">
+        <span aria-hidden>📷</span> {photo ? "Retake photo" : "Take a photo of the nutrition label"}
+        <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => onFile(e.target.files?.[0])} />
+      </label>
+      <p className="text-xs text-muted">Read on your phone; the photo isn't uploaded. First use downloads the text recognizer (about 7 MB), then it's cached.</p>
+      {photo && <img src={photo} alt="Label photo" className="max-h-56 w-full rounded-2xl object-contain" />}
+      {progress && (
+        <div>
+          <div className="mb-1 flex justify-between text-xs text-ink-2">
+            <span>{progress.status}…</span>
+            <span className="tabular">{Math.round(progress.progress * 100)}%</span>
+          </div>
+          <div className="h-2 overflow-hidden rounded-full bg-panel-2">
+            <div className="h-full rounded-full bg-accent transition-all" style={{ width: `${Math.round(progress.progress * 100)}%` }} />
+          </div>
+        </div>
+      )}
+      {error && <p className="rounded-xl bg-warn/10 p-3 text-sm text-ink-2">{error}</p>}
+      {prefill && (
+        <>
+          <p className="rounded-xl bg-accent/10 p-3 text-sm">
+            Check every number against the label, fix anything misread, add a name, then save.{notes.length ? ` ${notes.join(" ")}` : ""}
+          </p>
+          <ManualFoodTab key={rawText} prefill={prefill} onCreated={onCreated} />
+        </>
+      )}
+      {rawText && (
+        <button className="text-xs text-muted underline" onClick={() => setShowRaw(!showRaw)}>
+          {showRaw ? "Hide" : "Show"} recognized text
+        </button>
+      )}
+      {showRaw && <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-xl bg-bg p-3 text-xs text-ink-2">{rawText}</pre>}
     </div>
   );
 }

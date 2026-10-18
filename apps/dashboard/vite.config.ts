@@ -32,7 +32,15 @@ export default defineConfig({
         navigateFallback: "/index.html",
         navigateFallbackDenylist: WORKER_PATHS,
         globPatterns: ["**/*.{js,css,html,svg,png,woff2}"],
-        runtimeCaching: [],
+        // OCR engine + model (~15 MB) load only when "Snap label" is used; cache them on first use.
+        globIgnores: ["ocr/**"],
+        runtimeCaching: [
+          {
+            urlPattern: ({ url }) => url.pathname.startsWith("/ocr/"),
+            handler: "CacheFirst",
+            options: { cacheName: "ocr-assets", expiration: { maxEntries: 10 } },
+          },
+        ],
       },
     }),
   ],

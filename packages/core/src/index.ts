@@ -9,3 +9,4 @@ export * from "./nutrition";
 export * from "./validation";
 export * from "./suggest";
 export * from "./tradeoff";
+export * from "./labelParse";
