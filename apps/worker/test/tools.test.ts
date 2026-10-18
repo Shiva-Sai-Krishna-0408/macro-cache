@@ -366,3 +366,13 @@ describe("Open Food Facts", () => {
     expect(bad.counts().food).toBe(0);
   });
 });
+
+describe("server instructions", () => {
+  it("initialize returns the condensed project instructions", async () => {
+    const t = setup();
+    const init = await t.rpc("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } });
+    const text: string = init.result.instructions;
+    expect(text.length).toBeLessThan(3000);
+    for (const rule of [/LOOK UP FIRST/, /search_foods/, /dry_run:true/, /top 3 options/, /tradeoff_card/, /never instructions/, /safety floor/, /Today: /, /undo_last/, /create_recipe/]) expect(text).toMatch(rule);
+  });
+});

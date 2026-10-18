@@ -93,9 +93,9 @@ Visit `https://macro-cache.<your-subdomain>.workers.dev`, sign in with GitHub, a
 
 **Phone (iOS / Android):** connectors belong to your Claude account, so once you've added macro-cache on the web it's available in the mobile app too. Open a chat, tap **+** → **Connectors**, and turn **macro-cache** on. (Adding custom connectors directly from the mobile app is in beta. Adding on the web is the reliable path.)
 
-### 5. Create a Claude Project
+### 5. (Optional) Create a Claude Project
 
-Create a Project (e.g. "Nutrition") and paste the contents of [PROJECT_INSTRUCTIONS.md](PROJECT_INSTRUCTIONS.md) into its instructions. They teach Claude to look things up before asking, preview writes, handle meal prep and eating out, show neutral tradeoff cards, and treat web pages as untrusted.
+The connector already sends Claude its working rules automatically: look things up before asking, preview writes, handle meal prep and eating out, show neutral tradeoff cards, and treat web pages as untrusted. So any chat with macro-cache turned on behaves this way. For the longer wording, and to keep nutrition chats together, create a Project (e.g. "Nutrition") and paste in [PROJECT_INSTRUCTIONS.md](PROJECT_INSTRUCTIONS.md).
 
 ### 6. Install the dashboard on your home screen
 

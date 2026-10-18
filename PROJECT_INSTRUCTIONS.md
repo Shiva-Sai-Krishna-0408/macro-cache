@@ -1,6 +1,8 @@
 # macro-cache — Claude Project instructions
 
-Paste everything below the line into a Claude Project's **Instructions** (Projects → New project → Instructions). Make sure the **macro-cache** connector is turned on for chats in that project (the **+** button → **Connectors**).
+**You may not need this.** The macro-cache server sends a condensed version of these rules to Claude automatically (the MCP `instructions` field), so any chat with the connector turned on follows them. Pasting the full text below into a Claude Project (Projects → New project → Instructions) is optional. It gives Claude the longer wording and keeps your nutrition chats in one place. Turn on the **macro-cache** connector for that project's chats (**+** → **Connectors**).
+
+The condensed version lives in [`apps/worker/src/mcp/instructions.ts`](apps/worker/src/mcp/instructions.ts). Keep the two in sync when editing.
 
 ---
 
