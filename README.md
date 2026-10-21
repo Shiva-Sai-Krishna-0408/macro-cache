@@ -31,6 +31,7 @@ Ask Claude *"log the chipotle bowl I had yesterday"* or *"what should I eat for 
 - **Projection simulator.** 1–24 months, week-by-week with TDEE recomputed as weight changes, a "days per week on target" setting, and side-by-side comparison of two calorie levels.
 - **Logging without AI.** Barcode scanning (Open Food Facts), **Snap label** (photograph a nutrition panel; on-device OCR with Tesseract.js prefills the form for you to check), fuzzy search, recents, favorites, templates, meal-prep one-tap, repeat yesterday, quick add.
 - **Recipes page.** Every saved recipe with search: ingredients with raw weights, macros per 100 g cooked and per portion, meal-prep batch history, editable steps/notes (Claude can save these too), and one-tap "Log a portion".
+- **Editable entries.** Tap any logged entry to change the amount, swap the food, or move it to another meal or day, with live totals before saving. Claude does the same with `update_entry` ("change my lunch chicken to 250 g"); meal-prep portions follow the edit.
 - **Write safety.** Every write supports `dry_run`, passes server-side plausibility checks, is audit-logged, and can be reverted with `undo_last`. See [SECURITY.md](SECURITY.md).
 - **Your data.** JSON export/import and CSV export.
 

@@ -2,6 +2,7 @@ import { addDays, todayIn } from "@macro-cache/core";
 import { useState } from "react";
 import { api, invalidate, useApi } from "../api";
 import { Button, Card, MacroBar, Ring, Toast } from "../components/ui";
+import EditEntrySheet from "../components/EditEntrySheet";
 import type { LogPreset } from "./LogSheet";
 
 const MEALS = ["breakfast", "lunch", "dinner", "snack"] as const;
@@ -13,6 +14,7 @@ export default function Today({ profile, onLog }: { profile: any; onLog: (p: Log
   const [date, setDate] = useState(today);
   const day = useApi(`/api/day?date=${date}`);
   const [toast, setToast] = useState<string | null>(null);
+  const [editing, setEditing] = useState<number | null>(null);
   const adaptive = profile.adaptive;
 
   async function act(fn: () => Promise<unknown>, msg: string) {
@@ -144,13 +146,13 @@ export default function Today({ profile, onLog }: { profile: any; onLog: (p: Log
               <ul className="divide-y divide-line">
                 {meal.entries.map((e: any) => (
                   <li key={e.id} className="flex items-center justify-between gap-2 py-2">
-                    <div className="min-w-0">
+                    <button className="min-w-0 flex-1 text-left" onClick={() => (setToast(null), setEditing(e.id))} aria-label={`Edit ${e.name}`}>
                       <div className="truncate">{e.name}</div>
                       <div className="text-xs text-muted tabular">
                         {e.unit === "g" ? `${Math.round(e.amount)} g` : `${e.amount} ${e.unit}${e.amount === 1 ? "" : "s"}`} · P {Math.round(e.nutrients.protein)} · C {Math.round(e.nutrients.carbs)} · F {Math.round(e.nutrients.fat)}
                         {e.created_via === "claude" && " · via Claude"}
                       </div>
-                    </div>
+                    </button>
                     <div className="flex shrink-0 items-center gap-2">
                       <span className="tabular text-sm">{e.nutrients.kcal}</span>
                       <button aria-label={`Delete ${e.name}`} className="rounded-lg px-2 py-1 text-muted hover:bg-danger/15 hover:text-danger" onClick={() => act(() => api(`/api/log/${e.id}`, { method: "DELETE" }), "Entry deleted")}>
@@ -167,6 +169,19 @@ export default function Today({ profile, onLog }: { profile: any; onLog: (p: Log
         );
       })}
 
+      {editing != null && (
+        <EditEntrySheet
+          key={editing}
+          entryId={editing}
+          target={d?.target ?? null}
+          onClose={() => setEditing(null)}
+          onDone={(msg) => {
+            setEditing(null);
+            invalidate();
+            setToast(msg);
+          }}
+        />
+      )}
       {toast && <Toast message={toast} action={toast !== "Undone" ? "Undo" : undefined} onAction={undo} onDone={() => setToast(null)} />}
     </>
   );

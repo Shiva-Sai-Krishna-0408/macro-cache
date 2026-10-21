@@ -2,11 +2,11 @@ import { ValidationError } from "@macro-cache/core";
 import { z } from "zod";
 import { makeDb } from "../db/client";
 import type { Env } from "../env";
-import { logItemSchema, toLogItem } from "../mcp/server";
+import { logItemSchema, toEntryPatch, toLogItem } from "../mcp/server";
 import { type Ctx, ForbiddenError, NotFoundError, undoLast } from "../services/context";
 import { exportCsv, exportJson, importJson } from "../services/data";
 import { deleteFood, lookupBarcode, recentFoods, searchFoods, setFavorite, upsertFood, foodView } from "../services/foods";
-import { copyMeal, deleteEntry, deleteTemplate, getDaySummary, listTemplates, logFood, logTemplate, recentEntries, saveTemplate, useContainerPortion } from "../services/logging";
+import { copyMeal, deleteEntry, getEntry, updateEntry, deleteTemplate, getDaySummary, listTemplates, logFood, logTemplate, recentEntries, saveTemplate, useContainerPortion } from "../services/logging";
 import { getProfile, recalculateTargets, updateProfile } from "../services/profile";
 import { deleteWeight, getProgress, listWeights, logWeight, projectProgress, suggestMeals } from "../services/progress";
 import { activeContainers, createRecipe, getRecipeDetail, searchRecipes, searchRestaurantOrders, startContainer, updateRecipe } from "../services/recipes";
@@ -77,6 +77,26 @@ route("POST", "/api/log", async (ctx, req) => {
   return logFood(ctx, b.items.map((i) => toLogItem(i, b.date)), { dryRun: b.dryRun, date: b.date });
 });
 route("DELETE", "/api/log/:id", (ctx, _r, p) => deleteEntry(ctx, Number(p.id)));
+route("GET", "/api/log/:id", (ctx, _r, p) => getEntry(ctx, Number(p.id)));
+route("PATCH", "/api/log/:id", async (ctx, req, p) => {
+  const b = await body(
+    req,
+    z
+      .object({
+        food_id: z.number().int().positive().optional(),
+        recipe_id: z.number().int().positive().optional(),
+        container_id: z.number().int().positive().optional(),
+        restaurant_order_id: z.number().int().positive().optional(),
+        amount: z.number().positive().optional(),
+        unit: z.enum(["g", "serving", "portion"]).optional(),
+        meal: mealSchema.optional(),
+        date: dateSchema.optional(),
+        dryRun: z.boolean().optional(),
+      })
+      .refine((v) => [v.food_id, v.recipe_id, v.container_id, v.restaurant_order_id].filter((x) => x !== undefined).length <= 1, { message: "Swap to at most one item." }),
+  );
+  return updateEntry(ctx, Number(p.id), toEntryPatch(b), { dryRun: b.dryRun, tool: "dashboard_edit_entry" });
+});
 route("POST", "/api/log/copy-meal", async (ctx, req) => copyMeal(ctx, await body(req, z.object({ fromDate: dateSchema, meal: mealSchema, toDate: dateSchema.optional() }))));
 route("POST", "/api/undo", (ctx) => undoLast(ctx));
 route("GET", "/api/recents", (ctx) => recentEntries(ctx));

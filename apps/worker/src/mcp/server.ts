@@ -4,7 +4,7 @@ import { z } from "zod";
 import { SERVER_INSTRUCTIONS } from "./instructions";
 import { type Ctx, ForbiddenError, NotFoundError, undoLast } from "../services/context";
 import { getFood, lookupBarcode, searchFoods, upsertFood } from "../services/foods";
-import { deleteEntry, getDaySummary, listTemplates, logFood, logTemplate, saveTemplate, useContainerPortion, type LogItem } from "../services/logging";
+import { type EntryPatch, deleteEntry, getDaySummary, listTemplates, logFood, logTemplate, saveTemplate, updateEntry, useContainerPortion, type LogItem } from "../services/logging";
 import { getProfile, recalculateTargets, updateProfile } from "../services/profile";
 import { getProgress, logWeight, projectProgress, rankByProteinDensityTool, suggestMeals, tradeoff } from "../services/progress";
 import { activeContainers, createRecipe, getRecipeDetail, saveRestaurantOrder, searchRecipes, searchRestaurantOrders, startContainer, updateRecipe } from "../services/recipes";
@@ -98,6 +98,20 @@ export function toLogItem(v: z.infer<typeof logItemSchema>, d?: string): LogItem
           ? { type: "restaurant_order", id: v.restaurant_order_id }
           : { type: "adhoc", name: v.adhoc!.name, grams: v.adhoc!.grams ?? null, nutrients: n(v.adhoc!) };
   return { ref, amount: v.amount, unit: v.unit, meal: v.meal, date: d };
+}
+
+/** Map snake_case edit args (MCP + dashboard) to a service patch. */
+export function toEntryPatch(a: { food_id?: number; recipe_id?: number; container_id?: number; restaurant_order_id?: number; amount?: number; unit?: "g" | "serving" | "portion"; meal?: EntryPatch["meal"]; date?: string }): EntryPatch {
+  const ref: EntryPatch["ref"] = a.food_id
+    ? { type: "food", id: a.food_id }
+    : a.recipe_id
+      ? { type: "recipe", id: a.recipe_id }
+      : a.container_id
+        ? { type: "container", id: a.container_id }
+        : a.restaurant_order_id
+          ? { type: "restaurant_order", id: a.restaurant_order_id }
+          : undefined;
+  return { ref, amount: a.amount, unit: a.unit, meal: a.meal, date: a.date };
 }
 
 const RO = { readOnlyHint: true, openWorldHint: false } as const;
@@ -394,6 +408,35 @@ export function buildMcpServer(ctx: Ctx): McpServer {
       annotations: DESTRUCTIVE,
     },
     run((a) => deleteEntry(ctx, a.id, { dryRun: a.dry_run })),
+  );
+
+  server.registerTool(
+    "update_entry",
+    {
+      title: "Edit log entry",
+      description:
+        "Correct an existing log entry in place: amount (grams, servings or portions), what was eaten (swap to another food_id / recipe_id / container_id / restaurant_order_id), meal slot, or date. Use this for corrections like \"change my lunch chicken to 250 g\" or \"that was dinner, not lunch\" instead of delete + re-log (find the id with get_day_summary). The macro snapshot is recomputed from the referenced food and re-validated; meal-prep container portions are adjusted to match. Swapping resets the amount to the new item's default unless you pass one." +
+        WRITE_NOTE +
+        UNTRUSTED,
+      inputSchema: z
+        .object({
+          id,
+          food_id: id.optional(),
+          recipe_id: id.optional(),
+          container_id: id.optional(),
+          restaurant_order_id: id.optional(),
+          amount: z.number().positive().optional().describe("New quantity in `unit` (or the entry's current unit)."),
+          unit: z.enum(["g", "serving", "portion"]).optional(),
+          meal: meal.optional(),
+          date: date.optional(),
+          dry_run: dryRun,
+        })
+        .refine((v) => [v.food_id, v.recipe_id, v.container_id, v.restaurant_order_id].filter((x) => x !== undefined).length <= 1, {
+          message: "Swap to at most one of food_id, recipe_id, container_id, restaurant_order_id.",
+        }),
+      annotations: WRITE,
+    },
+    run((a) => updateEntry(ctx, a.id, toEntryPatch(a), { dryRun: a.dry_run })),
   );
 
   server.registerTool(

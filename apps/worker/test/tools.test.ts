@@ -15,6 +15,7 @@ const WRITE_TOOLS = [
   "save_template",
   "log_template",
   "delete_entry",
+  "update_entry",
   "undo_last",
   "log_weight",
 ];
@@ -267,6 +268,8 @@ describe("dry_run never writes", () => {
       ["save_template", { name: "T2", from_date: "2026-10-17", dry_run: true }],
       ["log_template", { template_id: tpl.template.id, dry_run: true }],
       ["delete_entry", { id: log.logged[0].id, dry_run: true }],
+      ["update_entry", { id: log.logged[0].id, amount: 300, unit: "g", meal: "dinner", dry_run: true }],
+      ["update_entry", { id: log.logged[0].id, container_id: cont.container.id, dry_run: true }],
       ["undo_last", { dry_run: true }],
       ["log_weight", { weight_kg: 88, dry_run: true }],
     ];
@@ -430,5 +433,147 @@ describe("recipe notes and detail", () => {
     expect(d.batches.map((b: any) => b.cooked_weight_g).sort()).toEqual([1000, 1200]);
     const active = d.batches.find((b: any) => b.version === 2);
     expect(active).toMatchObject({ portions_total: 4, portions_left: 3, active: true });
+  });
+});
+
+describe("update_entry", () => {
+  async function seeded() {
+    const t = setup();
+    await t.tool("update_profile", PROFILE);
+    const ch = await t.tool("upsert_food", CHICKEN); // 165 kcal/100 g, 150 g serving
+    const ri = await t.tool("upsert_food", RICE); // 130 kcal/100 g, no serving size
+    const log = await t.tool("log_food", { items: [{ food_id: ch.food.id, amount: 1, unit: "serving", meal: "lunch" }] });
+    return { t, ch, ri, entryId: log.logged[0].id as number };
+  }
+
+  it("recomputes the macro snapshot from the referenced food when the amount changes", async () => {
+    const { t, entryId } = await seeded();
+    expect((await t.tool("get_day_summary")).totals.kcal).toBe(248); // 150 g
+    const r = await t.tool("update_entry", { id: entryId, amount: 250, unit: "g" });
+    expect(r.ok).toBe(true);
+    expect(r.before.nutrients.kcal).toBe(248);
+    expect(r.after).toMatchObject({ id: entryId, amount: 250, unit: "g", grams: 250 });
+    expect(r.after.nutrients).toMatchObject({ kcal: 413, protein: 77.5, fat: 9 });
+    expect(r.delta.kcal).toBe(413 - 248);
+    expect(r.today).toMatch(/^Today: 413 \//);
+    const day = await t.tool("get_day_summary");
+    expect(day.totals.kcal).toBe(413);
+    expect(day.meals.lunch.entries).toHaveLength(1); // edited in place, not delete + re-log
+    expect(t.counts().log_entry).toBe(1);
+  });
+
+  it("keeps the current unit when only the amount is given, and uses fresh food data on recompute", async () => {
+    const { t, ch, entryId } = await seeded();
+    await t.tool("upsert_food", { ...CHICKEN, id: ch.food.id, per_100g: { kcal: 120, protein: 23, carbs: 0, fat: 3 } });
+    const r = await t.tool("update_entry", { id: entryId, amount: 2 });
+    expect(r.after).toMatchObject({ amount: 2, unit: "serving", grams: 300 });
+    expect(r.after.nutrients.kcal).toBe(360); // recomputed from the food as it is now
+  });
+
+  it("swaps the food, moves meal slot and date, and reports both days' totals", async () => {
+    const { t, ri, entryId } = await seeded();
+    const r = await t.tool("update_entry", { id: entryId, food_id: ri.food.id, amount: 200, unit: "g", meal: "dinner", date: "2026-10-16" });
+    expect(r.after).toMatchObject({ name: RICE.name, ref_type: "food", ref_id: ri.food.id, meal: "dinner", date: "2026-10-16" });
+    expect(r.after.nutrients.kcal).toBe(260);
+    expect(r.day_after).toMatchObject({ date: "2026-10-16" });
+    expect(r.day_after.totals.kcal).toBe(260);
+    expect(r.previous_day_after.totals.kcal).toBe(0);
+    expect((await t.tool("get_day_summary")).totals.kcal).toBe(0);
+    expect((await t.tool("get_day_summary", { date: "2026-10-16" })).meals.dinner.entries[0].name).toBe(RICE.name);
+  });
+
+  it("a swap without an amount uses the new item's default", async () => {
+    const { t, ri, entryId } = await seeded();
+    const r = await t.tool("update_entry", { id: entryId, food_id: ri.food.id });
+    expect(r.after).toMatchObject({ amount: 100, unit: "g" }); // rice has no serving size
+  });
+
+  describe("container portions", () => {
+    async function withContainer() {
+      const base = await seeded();
+      const { t, ch, ri } = base;
+      const rec = await t.tool("create_recipe", { name: "Prep", ingredients: [{ food_id: ch.food.id, grams: 600 }, { food_id: ri.food.id, grams: 400 }], total_cooked_weight_g: 1200, portion_g: 300 });
+      const c1 = await t.tool("start_container", { recipe_id: rec.recipe.id, portions: 4 });
+      const c2 = await t.tool("start_container", { recipe_id: rec.recipe.id, portions: 2, label: "Second batch" });
+      const eat = await t.tool("use_container_portion", { container_id: c1.container.id, meal: "dinner" });
+      const left = async (id: number) => (await t.tool("get_recipe", { id: rec.recipe.id })).batches.find((b: any) => b.container_id === id).portions_left;
+      return { ...base, c1: c1.container.id as number, c2: c2.container.id as number, eatId: eat.logged[0].id as number, left };
+    }
+
+    it("changing the portion count adjusts portions_left by the difference", async () => {
+      const { t, c1, eatId, left } = await withContainer();
+      expect(await left(c1)).toBe(3);
+      const r = await t.tool("update_entry", { id: eatId, amount: 2 });
+      expect(r.after).toMatchObject({ amount: 2, unit: "portion", grams: 600 });
+      expect(await left(c1)).toBe(2);
+      await t.tool("update_entry", { id: eatId, amount: 0.5 });
+      expect(await left(c1)).toBe(3.5);
+      await t.tool("update_entry", { id: eatId, amount: 150, unit: "g" }); // half a 300 g portion
+      expect(await left(c1)).toBe(3.5);
+    });
+
+    it("swapping away from a container gives the portion back; swapping onto one takes it", async () => {
+      const { t, ch, c1, c2, eatId, entryId, left } = await withContainer();
+      await t.tool("update_entry", { id: eatId, food_id: ch.food.id });
+      expect(await left(c1)).toBe(4);
+      await t.tool("update_entry", { id: entryId, container_id: c2 });
+      expect(await left(c2)).toBe(1);
+      await t.tool("update_entry", { id: entryId, container_id: c1, amount: 1 }); // move between containers
+      expect(await left(c2)).toBe(2);
+      expect(await left(c1)).toBe(3);
+    });
+
+    it("dry_run previews container changes without writing", async () => {
+      const { t, c1, eatId, left } = await withContainer();
+      const before = t.snapshot();
+      const r = await t.tool("update_entry", { id: eatId, amount: 3, dry_run: true });
+      expect(r.dry_run).toBe(true);
+      expect(r.containers).toEqual([{ container_id: c1, portions_left: 1 }]);
+      expect(t.snapshot()).toBe(before);
+      expect(await left(c1)).toBe(3);
+    });
+  });
+
+  it("rejects implausible or invalid edits and leaves the entry untouched", async () => {
+    const { t, entryId } = await seeded();
+    const before = t.snapshot();
+    for (const args of [
+      { id: entryId, amount: 100000, unit: "g" }, // over the per-entry weight limit
+      { id: entryId, amount: 60 }, // 60 servings
+      { id: entryId, amount: -1 },
+      { id: entryId, date: "2026-13-45" },
+      { id: entryId, food_id: 99999 },
+      { id: entryId, food_id: 1, recipe_id: 1 },
+      { id: entryId },
+      { id: 424242, amount: 1 },
+    ]) {
+      const r = await t.tool("update_entry", args);
+      expect(r.ok, JSON.stringify(args)).toBe(false);
+    }
+    const r = await t.tool("update_entry", { id: entryId, amount: 100000, unit: "g" });
+    expect(r.error).toMatch(/validation_failed|invalid_input/);
+    expect(t.snapshot()).toBe(before);
+  });
+
+  it("is audit-logged, and undo_last reverts the edit and the container counts in one step", async () => {
+    const base = await seeded();
+    const { t } = base;
+    const rec = await t.tool("create_recipe", { name: "Prep", ingredients: [{ food_id: base.ch.food.id, grams: 600 }], total_cooked_weight_g: 600, portion_g: 150 });
+    const c = await t.tool("start_container", { recipe_id: rec.recipe.id, portions: 4 });
+    const eat = await t.tool("use_container_portion", { container_id: c.container.id });
+    const eatId = eat.logged[0].id;
+    const left = async () => (await t.tool("list_containers")).containers.find((x: any) => x.id === c.container.id)?.portions_left ?? 0;
+    expect(await left()).toBe(3);
+
+    await t.tool("update_entry", { id: eatId, amount: 3, meal: "dinner" });
+    expect(await left()).toBe(1);
+    const audit = t.raw.prepare("select table_name from audit_log where tool = ?").all("update_entry") as { table_name: string }[];
+    expect(audit.map((a) => a.table_name).sort()).toEqual(["container", "logEntry"]);
+
+    const u = await t.tool("undo_last");
+    expect(u).toMatchObject({ undone: true, tool: "update_entry" });
+    expect(await left()).toBe(3);
+    const entry = (await t.tool("get_day_summary")).meals.lunch.entries.find((e: any) => e.id === eatId);
+    expect(entry).toMatchObject({ amount: 1, meal: "lunch" });
   });
 });

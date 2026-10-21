@@ -353,3 +353,115 @@ export async function useContainerPortion(
   await w.update("container", c.id, { portionsLeft: left, finishedAt: left <= 0 ? new Date().toISOString() : null });
   return { container_id: c.id, portions_left: left, logged: false };
 }
+
+// ---------------------------------------------------------------------------
+// Editing entries
+// ---------------------------------------------------------------------------
+
+export type EntryRef = Exclude<LogRef, { type: "adhoc" }>;
+
+export interface EntryPatch {
+  /** Swap what was eaten. Omit to keep the current food/recipe/container/order. */
+  ref?: EntryRef;
+  amount?: number;
+  unit?: "g" | "serving" | "portion";
+  meal?: Meal;
+  date?: string;
+}
+
+/** Units that make sense for a reference (used by the dashboard's edit sheet). */
+export async function unitOptions(ctx: Ctx, refType: LogRow["refType"], refId: number | null): Promise<("g" | "serving" | "portion")[]> {
+  if (refType === "food" && refId) return (await getFoodRow(ctx, refId)).servingSizeG ? ["g", "serving"] : ["g"];
+  if (refType === "recipe" && refId) return (await getRecipeRow(ctx, refId)).portionG ? ["g", "portion"] : ["g"];
+  if (refType === "container") return ["portion", "g"];
+  return ["serving"];
+}
+
+async function getEntryRow(ctx: Ctx, id: number) {
+  const e = await ctx.db.select().from(logEntry).where(eq(logEntry.id, id)).get();
+  if (!e || e.deletedAt) throw new NotFoundError(`Log entry ${id}`);
+  return e;
+}
+
+export async function getEntry(ctx: Ctx, id: number) {
+  const e = await getEntryRow(ctx, id);
+  return { entry: entryView(e), unit_options: await unitOptions(ctx, e.refType, e.refId).catch(() => [e.unit]) };
+}
+
+/** Portions of its container an entry used (0 if not a container entry). */
+const containerUse = (e: Pick<LogRow, "refType" | "refId" | "grams">, portionG: number) => (e.refType === "container" && e.grams ? e.grams / portionG : 0);
+
+/**
+ * Edit a log entry in place: amount, unit, what was eaten, meal slot, date.
+ * The macro snapshot is recomputed from the referenced food and re-validated,
+ * meal-prep container portions are moved to match, and everything is written
+ * as ONE audit batch so undo_last reverts the edit (and the portion counts).
+ */
+export async function updateEntry(ctx: Ctx, id: number, patch: EntryPatch, opts: { dryRun?: boolean; tool?: string } = {}) {
+  const before = await getEntryRow(ctx, id);
+  const swapping = patch.ref !== undefined && !(patch.ref.type === before.refType && patch.ref.id === before.refId);
+  if (!swapping && patch.amount === undefined && patch.unit === undefined && patch.meal === undefined && patch.date === undefined)
+    assertValid({ ok: false, issues: ["Nothing to change."] });
+
+  // Reference: the swap target, or the entry's own (ad-hoc entries keep their per-serving snapshot).
+  let ref: LogRef;
+  if (patch.ref) ref = patch.ref;
+  else if (before.refType === "adhoc" || before.refId == null) {
+    const per = before.amount > 0 ? 1 / before.amount : 1;
+    ref = { type: "adhoc", name: before.name, grams: before.grams != null ? before.grams * per : null, nutrients: scale(before, per) };
+  } else ref = { type: before.refType, id: before.refId } as EntryRef;
+
+  // Amount/unit: explicit values win; a swap resets to the new item's defaults; otherwise keep.
+  const unit = patch.unit ?? (swapping ? undefined : before.unit);
+  const amount = patch.amount ?? (swapping || (patch.unit && patch.unit !== before.unit) ? undefined : before.amount);
+
+  // Give back the old container usage first, so the new usage is measured against it.
+  const pending = new Map<number, number>();
+  let oldContainer: { id: number; restored: number; total: number } | null = null;
+  if (before.refType === "container" && before.refId) {
+    const c = await getContainerRow(ctx, before.refId).catch(() => null);
+    if (c) {
+      const restored = Math.min(c.portionsTotal, Math.round((c.portionsLeft + containerUse(before, c.portionG)) * 1000) / 1000);
+      oldContainer = { id: c.id, restored, total: c.portionsTotal };
+      pending.set(c.id, restored);
+    }
+  }
+
+  const resolved = await resolveItem(ctx, { ref, amount, unit, meal: patch.meal ?? before.meal, date: patch.date ?? before.date }, before.date, pending);
+  const next = { ...resolved.row, refType: ref.type, refId: ref.type === "adhoc" ? null : resolved.row.refId };
+
+  // Container writes: the old one gets its usage back (unless the new item uses it again), the new one is decremented.
+  const containerWrites = new Map<number, number>();
+  if (oldContainer) containerWrites.set(oldContainer.id, oldContainer.restored);
+  if (resolved.containerUpdate) containerWrites.set(resolved.containerUpdate.id, resolved.containerUpdate.portionsLeft);
+
+  // Totals before/after for the day(s) touched, for previews.
+  const dayTotals = async (date: string) => roundNutrients(sum(await entriesForDate(ctx, date)));
+  const minus = (t: FullNutrients, e: FullNutrients) => roundNutrients({ kcal: t.kcal - e.kcal, protein: t.protein - e.protein, carbs: t.carbs - e.carbs, fat: t.fat - e.fat, fiber: t.fiber - e.fiber, sugar: t.sugar - e.sugar, sodiumMg: t.sodiumMg - e.sodiumMg });
+  const plus = (t: FullNutrients, e: FullNutrients) => roundNutrients(sum([t, e]));
+  const oldN = roundNutrients(before as FullNutrients);
+  const newN = roundNutrients(next as FullNutrients);
+  const afterDate = next.date as string;
+  const afterTotals = afterDate === before.date ? plus(minus(await dayTotals(before.date), oldN), newN) : plus(await dayTotals(afterDate), newN);
+
+  const preview = {
+    before: entryView(before),
+    after: { ...entryView({ ...before, ...next } as LogRow) },
+    delta: { kcal: newN.kcal - oldN.kcal, protein: Math.round((newN.protein - oldN.protein) * 10) / 10 },
+    day_after: { date: afterDate, totals: afterTotals },
+    ...(afterDate !== before.date ? { previous_day_after: { date: before.date, totals: minus(await dayTotals(before.date), oldN) } } : {}),
+    containers: [...containerWrites].map(([cid, left]) => ({ container_id: cid, portions_left: left })),
+    unit_options: await unitOptions(ctx, next.refType, next.refId ?? null).catch(() => [next.unit]),
+    warnings: resolved.warnings,
+  };
+  if (opts.dryRun) return { dry_run: true, ...preview };
+
+  const w = new Writer(ctx, opts.tool ?? "update_entry", { id, ...patch });
+  const row = await w.update<LogRow>("logEntry", id, next);
+  for (const [cid, left] of containerWrites) {
+    const c = await getContainerRow(ctx, cid);
+    if (Math.abs(c.portionsLeft - left) > 1e-9) await w.update("container", cid, { portionsLeft: left, finishedAt: left <= 0 ? new Date().toISOString() : null });
+  }
+  const day = await getDaySummary(ctx, row.date);
+  return { ...preview, after: entryView(row), today: day.status_line };
+}

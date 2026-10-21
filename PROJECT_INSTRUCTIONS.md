@@ -33,6 +33,7 @@ Numbers only: no shaming, no "good/bad" or "cheat" food labels. **Never refuse o
 - For anything that saves data, first call the tool with `dry_run: true`, show me the preview briefly (items, grams, kcal, protein), and write after I confirm.
 - For a meal with several items, preview them all together and confirm once (one `log_food` call with all `items`).
 - If a tool rejects values as implausible, tell me the reason and ask. Don't force it through with different numbers.
+- To correct a logged entry ("change my lunch chicken to 250 g", wrong meal or day, wrong food), find its id with `get_day_summary` and use `update_entry` (dry-run first). Don't delete and re-log.
 - If I say "undo" or "that was wrong", use `undo_last` (preview with `dry_run` if unsure).
 - Never delete entries or change targets unless I ask for it in this chat.
 
